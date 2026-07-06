@@ -556,6 +556,136 @@ tr.observed-row {
   background: #f7fbff;
 }
 
+.quick-person-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.quick-person-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 14px;
+}
+
+.quick-person-card.observed {
+  border-color: #fecdd3;
+  background: #fff7f8;
+}
+
+.quick-person-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.quick-person-title {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.quick-person-title strong {
+  font-size: 1.02rem;
+}
+
+.quick-person-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px 14px;
+  margin-top: 12px;
+}
+
+.quick-person-field span,
+.quick-stat span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.quick-person-field strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.quick-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.quick-stat {
+  min-height: 62px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  padding: 9px 10px;
+}
+
+.quick-stat strong {
+  display: block;
+  margin-top: 5px;
+  font-size: 1.22rem;
+  line-height: 1;
+}
+
+.quick-stat.good {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.quick-stat.info {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1e40af;
+}
+
+.quick-stat.warn {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.quick-stat.danger {
+  border-color: #fecdd3;
+  background: #fff1f2;
+  color: #be123c;
+}
+
+.ticket-chip-row {
+  display: grid;
+  gap: 7px;
+  margin-top: 14px;
+}
+
+.ticket-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ticket-chip {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 4px 9px;
+  font-size: 0.84rem;
+  font-weight: 750;
+}
+
+.ticket-chip.more {
+  background: var(--panel-soft);
+  color: var(--muted);
+}
+
 .mini-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -581,10 +711,6 @@ tr.observed-row {
   margin-top: 4px;
   font-size: 0.9rem;
   overflow-wrap: anywhere;
-}
-
-.compact-table table {
-  min-width: 1080px;
 }
 
 .pin-panel {
@@ -630,6 +756,15 @@ tr.observed-row {
     flex-direction: column;
   }
 
+  .quick-person-header {
+    flex-direction: column;
+  }
+
+  .quick-person-fields,
+  .quick-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .observation-editor {
     grid-template-columns: 1fr;
   }
@@ -672,6 +807,15 @@ tr.observed-row {
 
   .ticket-card {
     padding: 12px;
+  }
+
+  .quick-person-card {
+    padding: 12px;
+  }
+
+  .quick-person-fields,
+  .quick-stat-grid {
+    grid-template-columns: 1fr;
   }
 
   .mini-grid {

@@ -36,6 +36,7 @@ import {
   filterTickets,
   getTicketStatus,
   getTicketStatusLabel,
+  normalizeSearch,
   summarizeTickets,
   ticketFilters,
   type PersonSuggestion,
@@ -64,6 +65,25 @@ type QuickSearchState = {
   loading: boolean;
   result: QuickSearchResult | null;
   error: string;
+};
+
+type QuickPersonGroup = {
+  key: string;
+  fullName: string;
+  dni: string;
+  unaCode: string;
+  careerName: string;
+  sellerNames: string[];
+  ticketNumbers: string[];
+  tickets: Ticket[];
+  total: number;
+  paid: number;
+  pickedUp: number;
+  pendingPayment: number;
+  pendingPickup: number;
+  observed: number;
+  withObservation: number;
+  updatedAt: string;
 };
 
 const views: Array<{ id: View; label: string; icon: typeof Search }> = [
@@ -101,17 +121,19 @@ export function TicketControlApp() {
 
   const summary = useMemo(() => summarizeTickets(tickets), [tickets]);
   const localQuickResults = useMemo(() => {
-    const results = quickQuery
-      ? filterTickets(tickets, quickQuery, "all")
-      : [...tickets].sort(sortByUpdatedAtDesc).slice(0, 5);
-    return results.slice(0, 12);
+    if (quickQuery) return filterTickets(tickets, quickQuery, "all");
+    return [...tickets].sort(sortByUpdatedAtDesc).slice(0, 5);
   }, [quickQuery, tickets]);
-  const quickResults =
+  const rawQuickResults =
     mode === "api" && quickQuery.trim()
       ? quickSearch.result?.kind === "tickets"
         ? quickSearch.result.tickets
         : []
       : localQuickResults;
+  const quickResults = useMemo(() => {
+    if (!quickQuery.trim()) return rawQuickResults;
+    return expandTicketsByPerson(rawQuickResults, tickets);
+  }, [quickQuery, rawQuickResults, tickets]);
   const quickExternal =
     mode === "api" && quickSearch.result?.kind === "external"
       ? quickSearch.result.external
@@ -553,17 +575,13 @@ export function TicketControlApp() {
 
         {view === "search" ? (
           <QuickSearchView
-            busyId={busyId}
-            observationDrafts={observationDrafts}
             query={quickQuery}
             results={quickResults}
             external={quickExternal}
             loading={quickSearch.loading}
             message={quickMessage}
-            setObservationDrafts={setObservationDrafts}
             setQuery={setQuickQuery}
             onAddNew={() => startRegisterFromQuickSearch()}
-            onPatch={patchTicket}
           />
         ) : null}
 
@@ -614,37 +632,31 @@ function SummaryCard({ label, value }: { label: string; value: number }) {
 }
 
 function QuickSearchView({
-  busyId,
   external,
   loading,
   message,
-  observationDrafts,
   onAddNew,
   query,
   results,
-  setObservationDrafts,
-  setQuery,
-  onPatch
+  setQuery
 }: {
-  busyId: string;
   external: IdentityPayload | null;
   loading: boolean;
   message: string;
-  observationDrafts: Record<string, string>;
   onAddNew: () => void;
   query: string;
   results: Ticket[];
-  setObservationDrafts: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   setQuery: (query: string) => void;
-  onPatch: (ticket: Ticket, patch: Partial<TicketDraft>) => void;
 }) {
+  const groupedResults = useMemo(() => groupTicketsByPerson(results), [results]);
+
   return (
     <section className="panel">
       <div className="panel-header">
         <h2>Consulta rápida</h2>
         <span className="mode-pill">
           {loading ? <Loader2 className="spin" size={16} /> : <Search size={16} />}
-          {loading ? "Buscando" : `${results.length} resultados`}
+          {loading ? "Buscando" : `${groupedResults.length} persona(s)`}
         </span>
       </div>
       <div className="panel-body">
@@ -667,14 +679,8 @@ function QuickSearchView({
         {message ? <p className="search-message">{message}</p> : null}
 
         <div className="results-grid" style={{ marginTop: 14 }}>
-          {results.length ? (
-            <QuickTicketTable
-              busyId={busyId}
-              observationDrafts={observationDrafts}
-              results={results}
-              setObservationDrafts={setObservationDrafts}
-              onPatch={onPatch}
-            />
+          {groupedResults.length ? (
+            <QuickPersonSummary groups={groupedResults} />
           ) : external ? (
             <ExternalPersonPanel external={external} onAddNew={onAddNew} />
           ) : query.trim() ? (
@@ -697,90 +703,89 @@ function QuickSearchView({
   );
 }
 
-function QuickTicketTable({
-  busyId,
-  observationDrafts,
-  results,
-  setObservationDrafts,
-  onPatch
+function QuickPersonSummary({ groups }: { groups: QuickPersonGroup[] }) {
+  return (
+    <div className="quick-person-grid">
+      {groups.map((group) => (
+        <QuickPersonCard key={group.key} group={group} />
+      ))}
+    </div>
+  );
+}
+
+function QuickPersonCard({ group }: { group: QuickPersonGroup }) {
+  const visibleTickets = group.ticketNumbers.slice(0, 18);
+  const hiddenTickets = group.ticketNumbers.length - visibleTickets.length;
+
+  return (
+    <article className={`quick-person-card ${group.observed ? "observed" : ""}`}>
+      <div className="quick-person-header">
+        <div className="ticket-title quick-person-title">
+          <strong>{group.fullName}</strong>
+          <span className="badge paid-pending">{group.total} ticket(s)</span>
+          {group.observed ? (
+            <span className="badge observed">
+              <AlertTriangle size={14} />
+              {group.observed} observado(s)
+            </span>
+          ) : null}
+        </div>
+        <span className="subtle">Actualizado {formatDate(group.updatedAt)}</span>
+      </div>
+
+      <div className="quick-person-fields">
+        <QuickPersonField label="DNI" value={group.dni || "-"} />
+        <QuickPersonField label="Código UNA" value={group.unaCode || "-"} />
+        <QuickPersonField label="Carrera" value={group.careerName || "-"} />
+        <QuickPersonField label="Vendedor" value={group.sellerNames.join(", ") || "-"} />
+      </div>
+
+      <div className="quick-stat-grid" aria-label="Resumen de tickets">
+        <QuickStat label="Pagados" value={group.paid} tone={group.paid === group.total ? "good" : "neutral"} />
+        <QuickStat label="Entregados" value={group.pickedUp} tone={group.pickedUp === group.total ? "good" : "neutral"} />
+        <QuickStat label="Pend. pago" value={group.pendingPayment} tone={group.pendingPayment ? "warn" : "good"} />
+        <QuickStat label="Falta recoger" value={group.pendingPickup} tone={group.pendingPickup ? "info" : "good"} />
+        <QuickStat label="Notas" value={group.withObservation} tone={group.withObservation ? "info" : "neutral"} />
+        <QuickStat label="Casos" value={group.observed} tone={group.observed ? "danger" : "good"} />
+      </div>
+
+      <div className="ticket-chip-row">
+        <span className="subtle">Tickets</span>
+        <div className="ticket-chip-list">
+          {visibleTickets.map((ticketNumber) => (
+            <span key={ticketNumber} className="ticket-chip">
+              {ticketNumber}
+            </span>
+          ))}
+          {hiddenTickets > 0 ? <span className="ticket-chip more">+{hiddenTickets}</span> : null}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function QuickPersonField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="quick-person-field">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function QuickStat({
+  label,
+  tone,
+  value
 }: {
-  busyId: string;
-  observationDrafts: Record<string, string>;
-  results: Ticket[];
-  setObservationDrafts: React.Dispatch<React.SetStateAction<Record<string, string>>>;
-  onPatch: (ticket: Ticket, patch: Partial<TicketDraft>) => void;
+  label: string;
+  tone: "danger" | "good" | "info" | "neutral" | "warn";
+  value: number;
 }) {
   return (
-    <div className="table-wrap compact-table">
-      <table>
-        <thead>
-          <tr>
-            <th>Ticket</th>
-            <th>Persona</th>
-            <th>DNI</th>
-            <th>Código UNA</th>
-            <th>Carrera</th>
-            <th>Pago</th>
-            <th>Entrega</th>
-            <th>Observación</th>
-          </tr>
-        </thead>
-        <tbody>
-          {results.map((ticket) => (
-            <tr
-              key={ticket.id}
-              className={getTicketStatus(ticket) === "observed_case" ? "observed-row" : ""}
-            >
-              <td>
-                <strong>{ticket.ticket_number}</strong>
-                <div style={{ marginTop: 7 }}>
-                  <TicketStatusBadge ticket={ticket} />
-                </div>
-              </td>
-              <td>
-                <strong>{ticket.full_name}</strong>
-                <div className="subtle">Vendedor {ticket.seller}</div>
-              </td>
-              <td>{ticket.dni || "-"}</td>
-              <td>{ticket.una_code || "-"}</td>
-              <td>{ticket.career_name || "-"}</td>
-              <td>
-                <button
-                  className={`switch-button ${ticket.paid ? "on paid" : ""}`}
-                  disabled={busyId === ticket.id}
-                  onClick={() => onPatch(ticket, { paid: !ticket.paid })}
-                  title="Cambiar pago"
-                  type="button"
-                >
-                  <CircleDollarSign size={16} />
-                  {ticket.paid ? "Pagó" : "No pagó"}
-                </button>
-              </td>
-              <td>
-                <button
-                  className={`switch-button ${ticket.picked_up ? "on picked" : ""}`}
-                  disabled={busyId === ticket.id}
-                  onClick={() => onPatch(ticket, { picked_up: !ticket.picked_up })}
-                  title="Cambiar entrega"
-                  type="button"
-                >
-                  <PackageCheck size={16} />
-                  {ticket.picked_up ? "Recogió" : "No recogió"}
-                </button>
-              </td>
-              <td className="observation-cell">
-                <ObservationEditor
-                  busy={busyId === ticket.id}
-                  observationDrafts={observationDrafts}
-                  setObservationDrafts={setObservationDrafts}
-                  ticket={ticket}
-                  onPatch={onPatch}
-                />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className={`quick-stat ${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   );
 }
@@ -1302,6 +1307,91 @@ function TicketStatusBadge({ ticket }: { ticket: Ticket }) {
       {label}
     </span>
   );
+}
+
+function expandTicketsByPerson(matches: Ticket[], allTickets: Ticket[]) {
+  if (!matches.length) return matches;
+
+  const personKeys = new Set(matches.map((ticket) => getPersonGroupKey(ticket)));
+  const expanded = new Map(matches.map((ticket) => [ticket.id, ticket]));
+
+  for (const ticket of allTickets) {
+    if (personKeys.has(getPersonGroupKey(ticket))) {
+      expanded.set(ticket.id, ticket);
+    }
+  }
+
+  return [...expanded.values()].sort(sortByUpdatedAtDesc);
+}
+
+function groupTicketsByPerson(tickets: Ticket[]): QuickPersonGroup[] {
+  type DraftGroup = Omit<QuickPersonGroup, "sellerNames" | "ticketNumbers"> & {
+    sellerSet: Set<string>;
+  };
+
+  const groups = new Map<string, DraftGroup>();
+
+  for (const ticket of tickets) {
+    const key = getPersonGroupKey(ticket);
+    const status = getTicketStatus(ticket);
+    const existing = groups.get(key);
+
+    if (!existing) {
+      groups.set(key, {
+        key,
+        fullName: ticket.full_name,
+        dni: ticket.dni ?? "",
+        unaCode: ticket.una_code ?? "",
+        careerName: ticket.career_name ?? "",
+        sellerSet: new Set(ticket.seller ? [ticket.seller] : []),
+        tickets: [ticket],
+        total: 1,
+        paid: ticket.paid ? 1 : 0,
+        pickedUp: ticket.picked_up ? 1 : 0,
+        pendingPayment: ticket.paid ? 0 : 1,
+        pendingPickup: ticket.paid && !ticket.picked_up ? 1 : 0,
+        observed: status === "observed_case" ? 1 : 0,
+        withObservation: ticket.observation?.trim() ? 1 : 0,
+        updatedAt: ticket.updated_at
+      });
+      continue;
+    }
+
+    existing.tickets.push(ticket);
+    existing.total += 1;
+    existing.paid += ticket.paid ? 1 : 0;
+    existing.pickedUp += ticket.picked_up ? 1 : 0;
+    existing.pendingPayment += ticket.paid ? 0 : 1;
+    existing.pendingPickup += ticket.paid && !ticket.picked_up ? 1 : 0;
+    existing.observed += status === "observed_case" ? 1 : 0;
+    existing.withObservation += ticket.observation?.trim() ? 1 : 0;
+    if (ticket.seller) existing.sellerSet.add(ticket.seller);
+
+    if (new Date(ticket.updated_at).getTime() > new Date(existing.updatedAt).getTime()) {
+      existing.fullName = ticket.full_name;
+      existing.dni = ticket.dni ?? existing.dni;
+      existing.unaCode = ticket.una_code ?? existing.unaCode;
+      existing.careerName = ticket.career_name ?? existing.careerName;
+      existing.updatedAt = ticket.updated_at;
+    }
+  }
+
+  return [...groups.values()]
+    .map(({ sellerSet, tickets: groupTickets, ...group }) => ({
+      ...group,
+      sellerNames: [...sellerSet],
+      ticketNumbers: groupTickets
+        .map((ticket) => ticket.ticket_number)
+        .sort((a, b) => a.localeCompare(b, "es", { numeric: true })),
+      tickets: groupTickets
+    }))
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+}
+
+function getPersonGroupKey(ticket: Ticket) {
+  if (ticket.dni?.trim()) return `dni:${ticket.dni.trim()}`;
+  if (ticket.una_code?.trim()) return `una:${ticket.una_code.trim()}`;
+  return `name:${normalizeSearch(ticket.full_name)}`;
 }
 
 function sortByCreatedAtDesc(a: Ticket, b: Ticket) {
