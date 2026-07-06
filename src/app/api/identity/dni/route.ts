@@ -4,20 +4,27 @@ import { lookupDni } from "@/lib/server/identity";
 
 export const runtime = "nodejs";
 
+export async function GET(request: Request) {
+  const accessError = requireAccess(request);
+  if (accessError) return accessError;
+
+  const url = new URL(request.url);
+  return handleDniLookup(url.searchParams.get("dni") ?? "");
+}
+
 export async function POST(request: Request) {
   const accessError = requireAccess(request);
   if (accessError) return accessError;
 
   const body = (await request.json().catch(() => null)) as { dni?: string } | null;
-  const result = await lookupDni(body?.dni ?? "");
+  return handleDniLookup(body?.dni ?? "");
+}
+
+async function handleDniLookup(dni: string) {
+  const result = await lookupDni(dni);
 
   if (!result.ok) {
-    const status = result.message.includes("API Key")
-      ? 401
-      : result.message.startsWith("No se encontraron")
-        ? 404
-        : 400;
-    return jsonError(result.message, status);
+    return jsonError(result.message, result.status ?? 400);
   }
 
   return NextResponse.json({ ok: true, data: result, message: result.message });

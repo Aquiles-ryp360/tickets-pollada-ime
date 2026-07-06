@@ -1,5 +1,4 @@
 const unapAllowedHost = "tramites.unap.edu.pe";
-const peruApiAllowedHost = "peruapi.com";
 const defaultTimeoutMs = 8000;
 
 export type IdentityResult = {
@@ -11,16 +10,21 @@ export type IdentityResult = {
   career_code: string | null;
   career_name: string | null;
   message: string;
+  status?: number;
 };
 
 export async function lookupUnapStudent(unaCode: string) {
   const normalizedCode = unaCode.trim();
   if (!/^\d{4,12}$/.test(normalizedCode)) {
-    return identityFailure("unap_tramites", "Ingresa un codigo UNA valido.", normalizedCode);
+    return identityFailure("unap_tramites", "Ingresa un codigo UNA valido.", {
+      unaCode: normalizedCode
+    });
   }
 
   if (!envEnabled("UNAP_LOOKUP_ENABLED", true)) {
-    return identityFailure("unap_tramites", "La consulta por codigo UNA no esta habilitada.", normalizedCode);
+    return identityFailure("unap_tramites", "La consulta por codigo UNA no esta habilitada.", {
+      unaCode: normalizedCode
+    });
   }
 
   try {
@@ -37,7 +41,7 @@ export async function lookupUnapStudent(unaCode: string) {
     return identityFailure(
       "unap_tramites",
       "El servicio UNA no respondio. Puedes registrar manualmente.",
-      normalizedCode
+      { unaCode: normalizedCode }
     );
   }
 }
@@ -45,45 +49,92 @@ export async function lookupUnapStudent(unaCode: string) {
 export async function lookupDni(dni: string) {
   const normalizedDni = dni.trim();
   if (!/^\d{8}$/.test(normalizedDni)) {
-    return identityFailure("peruapi", "Ingresa un DNI valido de 8 digitos.", null, normalizedDni);
+    return identityFailure("peruapi", "Ingresa un DNI valido de 8 digitos.", {
+      dni: normalizedDni,
+      status: 400
+    });
   }
 
   if (!envEnabled("DNI_LOOKUP_ENABLED", true)) {
-    return identityFailure("peruapi", "La consulta por DNI no esta habilitada.", null, normalizedDni);
+    return identityFailure("peruapi", "La consulta por DNI no esta habilitada.", {
+      dni: normalizedDni,
+      status: 400
+    });
   }
 
-  const apiKey = process.env.PERUAPI_API_KEY?.trim() || process.env.API_Key_PERUAPI?.trim();
-  if (!apiKey) {
-    return identityFailure("peruapi", "PERUAPI_API_KEY no configurado.", null, normalizedDni);
+  const proxyUrl = process.env.DNI_PROXY_URL?.trim();
+  const proxySecret = process.env.DNI_PROXY_SECRET?.trim();
+  if (!proxyUrl || !proxySecret) {
+    return identityFailure("peruapi", "Consulta DNI no configurada", {
+      dni: normalizedDni,
+      status: 500
+    });
   }
 
   try {
-    const response = await safeFetch(buildPeruApiDniUrl(normalizedDni), {
-      host: peruApiAllowedHost,
-      headers: {
-        Accept: "application/json",
-        "X-API-KEY": apiKey,
-        "User-Agent": "tickets-pollada-ime/1.0 identity lookup"
-      }
+    const response = await fetchDniProxy({
+      dni: normalizedDni,
+      proxyUrl,
+      proxySecret
     });
 
+    if (response.status === 400) {
+      return identityFailure("peruapi", "Solicitud DNI invalida", {
+        dni: normalizedDni,
+        status: 400
+      });
+    }
+
     if (response.status === 401 || response.status === 403) {
-      return identityFailure("peruapi", "API Key invalida o sin permisos.", null, normalizedDni);
+      return identityFailure("peruapi", "Consulta DNI no autorizada", {
+        dni: normalizedDni,
+        status: 401
+      });
     }
 
     if (response.status === 404) {
-      return identityFailure("peruapi", "No se encontraron datos para el DNI ingresado.", null, normalizedDni);
+      return identityFailure("peruapi", "DNI no encontrado", {
+        dni: normalizedDni,
+        status: 404
+      });
+    }
+
+    if (response.status === 429) {
+      return identityFailure("peruapi", "Limite de consultas alcanzado", {
+        dni: normalizedDni,
+        status: 429
+      });
+    }
+
+    if (response.status === 504) {
+      return identityFailure("peruapi", "Tiempo de espera agotado", {
+        dni: normalizedDni,
+        status: 504
+      });
+    }
+
+    if (!response.ok) {
+      return identityFailure("peruapi", "Servicio DNI no disponible", {
+        dni: normalizedDni,
+        status: response.status >= 500 ? 503 : 400
+      });
     }
 
     const payload = await response.json().catch(() => null);
-    return normalizePeruApiPayload(payload, normalizedDni);
-  } catch {
-    return identityFailure(
-      "peruapi",
-      "El servicio de consulta DNI no respondio. Puedes registrar manualmente.",
-      null,
-      normalizedDni
-    );
+    if (!payload) {
+      return identityFailure("peruapi", "Servicio DNI no disponible", {
+        dni: normalizedDni,
+        status: 503
+      });
+    }
+
+    return normalizeDniProxyPayload(payload, normalizedDni);
+  } catch (error) {
+    const status = error instanceof Error && error.name === "AbortError" ? 504 : 503;
+    return identityFailure("peruapi", status === 504 ? "Tiempo de espera agotado" : "Servicio DNI no disponible", {
+      dni: normalizedDni,
+      status
+    });
   }
 }
 
@@ -97,15 +148,6 @@ function buildUnapStudentUrl(unaCode: string) {
   const url = new URL(`/tramite/estudiante/${encodeURIComponent(unaCode)}`, baseUrl);
   url.searchParams.set("carrera", career);
   return url;
-}
-
-function buildPeruApiDniUrl(dni: string) {
-  const baseUrl = new URL(process.env.PERUAPI_BASE_URL ?? "https://peruapi.com");
-  if (baseUrl.protocol !== "https:" || baseUrl.hostname !== peruApiAllowedHost) {
-    throw new Error("Peru API base URL is not allowed");
-  }
-
-  return new URL(`/api/dni/${encodeURIComponent(dni)}`, baseUrl);
 }
 
 async function safeFetch(
@@ -138,6 +180,47 @@ async function safeFetch(
   }
 }
 
+async function fetchDniProxy({
+  dni,
+  proxyUrl,
+  proxySecret
+}: {
+  dni: string;
+  proxyUrl: string;
+  proxySecret: string;
+}) {
+  const url = buildDniProxyUrl(proxyUrl);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), positiveNumber(process.env.DNI_PROXY_TIMEOUT_MS, defaultTimeoutMs));
+
+  try {
+    return await fetch(url, {
+      method: "POST",
+      redirect: "error",
+      credentials: "omit",
+      signal: controller.signal,
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "X-Proxy-Secret": proxySecret,
+        "User-Agent": "tickets-pollada-ime/1.0 dni proxy"
+      },
+      body: JSON.stringify({ dni })
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function buildDniProxyUrl(value: string) {
+  const normalizedBase = value.endsWith("/") ? value : `${value}/`;
+  const url = new URL("dni", normalizedBase);
+  if (url.protocol !== "https:") {
+    throw new Error("DNI proxy URL is not allowed");
+  }
+  return url;
+}
+
 function normalizeUnapPayload(payload: unknown, unaCode: string): IdentityResult {
   const root = isRecord(payload) ? payload : null;
   const data = isRecord(root?.data) ? root.data : null;
@@ -154,7 +237,9 @@ function normalizeUnapPayload(payload: unknown, unaCode: string): IdentityResult
     "INGENIERÍA MECÁNICA ELÉCTRICA";
 
   if (!fullName) {
-    return identityFailure("unap_tramites", "No se encontro estudiante con ese codigo UNA.", unaCode);
+    return identityFailure("unap_tramites", "No se encontro estudiante con ese codigo UNA.", {
+      unaCode
+    });
   }
 
   return {
@@ -169,7 +254,7 @@ function normalizeUnapPayload(payload: unknown, unaCode: string): IdentityResult
   };
 }
 
-function normalizePeruApiPayload(payload: unknown, dni: string): IdentityResult {
+function normalizeDniProxyPayload(payload: unknown, dni: string): IdentityResult {
   const root = isRecord(payload) ? payload : null;
   const data = firstRecord(root?.data, root?.result, root?.persona, root);
   const nombres =
@@ -187,20 +272,25 @@ function normalizePeruApiPayload(payload: unknown, dni: string): IdentityResult 
     stringField(data, "ape_materno") ??
     stringField(data, "second_surname");
   const fullName =
+    stringField(data, "cliente") ??
     stringField(data, "nombre_completo") ??
     stringField(data, "nombreCompleto") ??
     stringField(data, "full_name") ??
     joinNameParts(nombres, apellidoPaterno, apellidoMaterno);
+  const responseDni = stringField(data, "dni") ?? dni;
 
-  if (!fullName) {
-    return identityFailure("peruapi", "No se encontraron datos para el DNI ingresado.", null, dni);
+  if (!root?.ok || !fullName || responseDni !== dni) {
+    return identityFailure("peruapi", "DNI no encontrado", {
+      dni,
+      status: 404
+    });
   }
 
   return {
     ok: true,
     source: "peruapi",
     full_name: fullName,
-    dni,
+    dni: responseDni,
     una_code: null,
     career_code: null,
     career_name: null,
@@ -211,8 +301,15 @@ function normalizePeruApiPayload(payload: unknown, dni: string): IdentityResult 
 function identityFailure(
   source: IdentityResult["source"],
   message: string,
-  unaCode: string | null = null,
-  dni: string | null = null
+  {
+    unaCode = null,
+    dni = null,
+    status
+  }: {
+    unaCode?: string | null;
+    dni?: string | null;
+    status?: number;
+  } = {}
 ): IdentityResult {
   return {
     ok: false,
@@ -222,7 +319,8 @@ function identityFailure(
     una_code: unaCode,
     career_code: null,
     career_name: null,
-    message
+    message,
+    status
   };
 }
 

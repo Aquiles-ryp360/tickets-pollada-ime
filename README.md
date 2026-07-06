@@ -44,12 +44,16 @@ La `SERVICE_ROLE_KEY` solo se usa en endpoints de servidor. No se expone al nave
 Variables opcionales:
 
 ```bash
-PERUAPI_API_KEY=...
+DNI_PROXY_URL=https://server-juliaca.tailb6baea.ts.net
+DNI_PROXY_SECRET=REEMPLAZAR_CON_SECRETO_DEL_SERVIDOR
 DNI_LOOKUP_ENABLED=true
+DNI_PROXY_TIMEOUT_MS=8000
 UNAP_LOOKUP_ENABLED=true
 UNAP_DEFAULT_CAREER_CODE=36
 UNAP_DEFAULT_CAREER_NAME=INGENIERÍA MECÁNICA ELÉCTRICA
 ```
+
+La consulta DNI se realiza solo desde rutas API de Next.js hacia el proxy seguro. El navegador no recibe `DNI_PROXY_SECRET` ni claves de Perú API.
 
 El autollenado por código UNA usa por defecto la carrera `36`, Ingeniería Mecánica Eléctrica.
 
@@ -63,6 +67,6 @@ No hay estado de anulado. Un ticket con `picked_up = true` y `paid = false` se m
 
 1. Busca primero tickets existentes en Supabase por ticket, DNI, código UNA, nombre, vendedor u observación.
 2. Si no encuentra tickets y la búsqueda tiene 6 dígitos, consulta el servicio UNA Puno por código de matrícula.
-3. Si no encuentra tickets y la búsqueda tiene 8 dígitos, consulta el proveedor DNI configurado.
+3. Si no encuentra tickets y la búsqueda tiene 8 dígitos, consulta el proxy DNI configurado en el backend.
 4. Si se recuperan datos externos, muestra una ficha de cliente nuevo lista para agregar al formulario.
 5. Si ya existe en Supabase, muestra una tabla compacta con pago, entrega y observación editable.
