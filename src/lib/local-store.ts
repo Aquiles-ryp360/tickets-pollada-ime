@@ -36,27 +36,38 @@ export function listLocalTickets(query: string, filter: TicketFilter) {
 }
 
 export function createLocalTicket(draft: TicketDraft) {
-  const parsed = ticketCreateSchema.parse(draft);
+  return createLocalTickets([draft])[0];
+}
+
+export function createLocalTickets(drafts: TicketDraft[]) {
+  const parsedDrafts = drafts.map((draft) => ticketCreateSchema.parse(draft));
   const tickets = loadLocalTickets();
-  const exists = tickets.some(
-    (ticket) => normalizeTicketNumber(ticket.ticket_number) === parsed.ticket_number
+  const normalizedNumbers = parsedDrafts.map((draft) => normalizeTicketNumber(draft.ticket_number));
+  const repeatedInDraft = normalizedNumbers.find((number, index) => normalizedNumbers.indexOf(number) !== index);
+
+  if (repeatedInDraft) {
+    throw new Error(`El ticket ${repeatedInDraft} esta repetido en el formulario.`);
+  }
+
+  const existingNumber = normalizedNumbers.find((number) =>
+    tickets.some((ticket) => normalizeTicketNumber(ticket.ticket_number) === number)
   );
 
-  if (exists) {
-    throw new Error("Ya existe un ticket con ese numero.");
+  if (existingNumber) {
+    throw new Error(`Ya existe un ticket con el numero ${existingNumber}.`);
   }
 
   const now = new Date().toISOString();
-  const ticket: Ticket = {
+  const newTickets: Ticket[] = parsedDrafts.map((draft) => ({
     id: crypto.randomUUID(),
-    ...parsed,
+    ...draft,
     created_at: now,
     updated_at: now
-  };
+  }));
 
-  const nextTickets = [ticket, ...tickets];
+  const nextTickets = [...newTickets, ...tickets];
   saveLocalTickets(nextTickets);
-  return ticket;
+  return newTickets;
 }
 
 export function updateLocalTicket(id: string, patch: Partial<TicketDraft>) {

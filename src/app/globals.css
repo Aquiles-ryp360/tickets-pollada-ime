@@ -308,6 +308,39 @@ button:disabled {
   grid-column: 1 / -1;
 }
 
+.ticket-count-control {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 54px;
+  align-items: center;
+  gap: 12px;
+}
+
+.ticket-count-control strong {
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: var(--panel-soft);
+  font-size: 1rem;
+}
+
+.range-input {
+  width: 100%;
+  accent-color: var(--teal);
+}
+
+.ticket-number-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.ticket-number-grid.single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .toggle-row,
 .actions-row,
 .filter-row {
@@ -598,6 +631,10 @@ tr.observed-row {
   }
 
   .observation-editor {
+    grid-template-columns: 1fr;
+  }
+
+  .ticket-number-grid {
     grid-template-columns: 1fr;
   }
 

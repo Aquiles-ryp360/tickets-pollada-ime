@@ -1,6 +1,7 @@
 import {
   buildPersonSuggestions,
   filterTickets,
+  normalizeTicketNumber,
   ticketCreateSchema,
   ticketPatchSchema,
   type Ticket,
@@ -27,16 +28,35 @@ export async function listTickets({
 }
 
 export async function createTicket(rawDraft: TicketDraft) {
-  const draft = ticketCreateSchema.parse(rawDraft);
+  const tickets = await createTickets([rawDraft]);
+  return tickets[0];
+}
+
+export async function createTickets(rawDrafts: TicketDraft[]) {
+  if (!rawDrafts.length) {
+    throw new Error("Ingresa al menos un ticket.");
+  }
+
+  const drafts = rawDrafts.map((rawDraft) => ticketCreateSchema.parse(rawDraft));
+  const normalizedNumbers = drafts.map((draft) => normalizeTicketNumber(draft.ticket_number));
+  const repeatedInDraft = normalizedNumbers.find((number, index) => normalizedNumbers.indexOf(number) !== index);
+
+  if (repeatedInDraft) {
+    throw new Error(`El ticket ${repeatedInDraft} esta repetido en el formulario.`);
+  }
+
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase.from("tickets").insert(draft).select("*").single();
+  const { data, error } = await supabase
+    .from("tickets")
+    .insert(drafts)
+    .select("*");
 
   if (error) {
     if (error.code === "23505") throw new Error("Ya existe un ticket con ese numero.");
     throw new Error(error.message);
   }
 
-  return data as Ticket;
+  return (data ?? []) as Ticket[];
 }
 
 export async function updateTicket(id: string, rawPatch: Partial<TicketDraft>) {

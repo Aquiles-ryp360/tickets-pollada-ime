@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
-import { createTicket, listTickets } from "@/lib/server/ticket-repository";
+import { createTicket, createTickets, listTickets } from "@/lib/server/ticket-repository";
 import { jsonError, requireAccess } from "@/lib/server/access";
 import { StorageNotConfiguredError } from "@/lib/server/supabase";
 import { ticketFilters, type TicketFilter } from "@/lib/tickets";
@@ -37,6 +37,11 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
 
   try {
+    if (Array.isArray(body)) {
+      const tickets = await createTickets(body);
+      return NextResponse.json({ ok: true, data: tickets }, { status: 201 });
+    }
+
     const ticket = await createTicket(body);
     return NextResponse.json({ ok: true, data: ticket }, { status: 201 });
   } catch (error) {

@@ -18,7 +18,7 @@ import {
   UserRound
 } from "lucide-react";
 import {
-  apiCreateTicket,
+  apiCreateTickets,
   apiFetch,
   apiGetTickets,
   apiUpdateTicket,
@@ -26,7 +26,7 @@ import {
   setStoredPin
 } from "@/lib/api-client";
 import {
-  createLocalTicket,
+  createLocalTickets,
   loadLocalTickets,
   updateLocalTicket
 } from "@/lib/local-store";
@@ -72,6 +72,8 @@ const views: Array<{ id: View; label: string; icon: typeof Search }> = [
   { id: "list", label: "Lista de tickets", icon: ClipboardList }
 ];
 
+const maxTicketCount = 20;
+
 export function TicketControlApp() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [view, setView] = useState<View>("search");
@@ -93,6 +95,8 @@ export function TicketControlApp() {
   const [listFilter, setListFilter] = useState<TicketFilter>("all");
   const [personQuery, setPersonQuery] = useState("");
   const [form, setForm] = useState<TicketDraft>(emptyTicketDraft);
+  const [ticketCount, setTicketCount] = useState(1);
+  const [ticketNumbers, setTicketNumbers] = useState<string[]>([""]);
   const [observationDrafts, setObservationDrafts] = useState<Record<string, string>>({});
 
   const summary = useMemo(() => summarizeTickets(tickets), [tickets]);
@@ -131,6 +135,13 @@ export function TicketControlApp() {
     setPinDraft(storedPin);
     void refreshTickets(storedPin);
   }, []);
+
+  useEffect(() => {
+    setTicketNumbers((current) => {
+      if (current[0] === form.ticket_number) return current;
+      return [form.ticket_number, ...current.slice(1)];
+    });
+  }, [form.ticket_number]);
 
   useEffect(() => {
     const query = quickQuery.trim();
@@ -241,20 +252,25 @@ export function TicketControlApp() {
     setNotice(null);
 
     try {
-      const ticket =
+      const drafts = buildTicketDrafts();
+      const createdTickets =
         mode === "local"
-          ? createLocalTicket(form)
-          : await createTicketViaApi(form);
+          ? createLocalTickets(drafts)
+          : await createTicketsViaApi(drafts);
+      const firstTicket = createdTickets[0];
+      if (!firstTicket) {
+        throw new Error("No se pudo registrar ningun ticket.");
+      }
 
-      setTickets((current) => [ticket, ...current.filter((item) => item.id !== ticket.id)]);
+      setTickets((current) => mergeTickets(current, createdTickets));
       setQuickSearch({
         loading: false,
         result: {
           kind: "tickets",
-          query: ticket.ticket_number,
-          tickets: [ticket],
+          query: firstTicket.ticket_number,
+          tickets: createdTickets,
           external: null,
-          message: "Ticket registrado."
+          message: createdTickets.length === 1 ? "Ticket registrado." : "Tickets registrados."
         },
         error: ""
       });
@@ -262,10 +278,15 @@ export function TicketControlApp() {
         ...emptyTicketDraft,
         seller: form.seller
       });
+      setTicketCount(1);
+      setTicketNumbers([""]);
       setPersonQuery("");
       setView("search");
-      setQuickQuery(ticket.ticket_number);
-      setNotice({ type: "success", text: "Ticket registrado." });
+      setQuickQuery(firstTicket.ticket_number);
+      setNotice({
+        type: "success",
+        text: createdTickets.length === 1 ? "Ticket registrado." : `${createdTickets.length} tickets registrados.`
+      });
     } catch (error) {
       setNotice({
         type: "error",
@@ -276,10 +297,35 @@ export function TicketControlApp() {
     }
   }
 
-  async function createTicketViaApi(draft: TicketDraft) {
-    const result = await apiCreateTicket(draft, pin);
+  async function createTicketsViaApi(drafts: TicketDraft[]) {
+    const result = await apiCreateTickets(drafts, pin);
     if (!result.ok) throw new Error(result.message);
     return result.data;
+  }
+
+  function buildTicketDrafts() {
+    const numbers = ticketNumbers
+      .slice(0, ticketCount)
+      .map((number) => number.trim());
+    const missing = numbers.some((number) => !number);
+
+    if (missing) {
+      throw new Error("Ingresa el numero de cada ticket.");
+    }
+
+    const normalizedNumbers = numbers.map((number) => number.replace(/\s+/g, "").toUpperCase());
+    const repeated = normalizedNumbers.find(
+      (number, index) => normalizedNumbers.indexOf(number) !== index
+    );
+
+    if (repeated) {
+      throw new Error(`El ticket ${repeated} esta repetido.`);
+    }
+
+    return numbers.map((ticketNumber) => ({
+      ...form,
+      ticket_number: ticketNumber
+    }));
   }
 
   async function patchTicket(ticket: Ticket, patch: Partial<TicketDraft>) {
@@ -393,12 +439,36 @@ export function TicketControlApp() {
       ticket_number: !looksLikeDni && !looksLikeUnaCode && !looksLikeOnlyText ? rawQuery : "",
       identity_source: external?.source ?? "manual"
     }));
+    setTicketCount(1);
+    setTicketNumbers([
+      !looksLikeDni && !looksLikeUnaCode && !looksLikeOnlyText ? rawQuery : ""
+    ]);
     setPersonQuery(external?.full_name ?? rawQuery);
     setView("register");
     setNotice({
       type: "info",
       text: external ? "Datos cargados para registrar nuevo ticket." : "Completa los datos del nuevo ticket."
     });
+  }
+
+  function updateTicketCount(count: number) {
+    const nextCount = Math.min(Math.max(Math.trunc(count), 1), maxTicketCount);
+    setTicketCount(nextCount);
+    setTicketNumbers((current) =>
+      Array.from({ length: nextCount }, (_, index) => current[index] ?? "")
+    );
+  }
+
+  function setTicketNumberAt(index: number, value: string) {
+    setTicketNumbers((current) =>
+      Array.from({ length: ticketCount }, (_, currentIndex) =>
+        currentIndex === index ? value : current[currentIndex] ?? ""
+      )
+    );
+
+    if (index === 0) {
+      setForm((current) => ({ ...current, ticket_number: value }));
+    }
   }
 
   if (pinRequired) {
@@ -503,8 +573,12 @@ export function TicketControlApp() {
             loading={saving}
             personQuery={personQuery}
             suggestions={personSuggestions}
+            ticketCount={ticketCount}
+            ticketNumbers={ticketNumbers}
             setForm={setForm}
             setPersonQuery={setPersonQuery}
+            setTicketCount={updateTicketCount}
+            setTicketNumberAt={setTicketNumberAt}
             onApplySuggestion={applySuggestion}
             onLookupDni={() => lookupIdentity("dni")}
             onLookupUna={() => lookupIdentity("unap")}
@@ -754,8 +828,12 @@ function RegisterView({
   loading,
   personQuery,
   suggestions,
+  ticketCount,
+  ticketNumbers,
   setForm,
   setPersonQuery,
+  setTicketCount,
+  setTicketNumberAt,
   onApplySuggestion,
   onLookupDni,
   onLookupUna,
@@ -765,8 +843,12 @@ function RegisterView({
   loading: boolean;
   personQuery: string;
   suggestions: PersonSuggestion[];
+  ticketCount: number;
+  ticketNumbers: string[];
   setForm: React.Dispatch<React.SetStateAction<TicketDraft>>;
   setPersonQuery: (query: string) => void;
+  setTicketCount: (count: number) => void;
+  setTicketNumberAt: (index: number, value: string) => void;
   onApplySuggestion: (suggestion: PersonSuggestion) => void;
   onLookupDni: () => void;
   onLookupUna: () => void;
@@ -822,7 +904,12 @@ function RegisterView({
         </div>
 
         <div className="form-grid">
-          <Field label="Número de ticket" name="ticket_number" form={form} setForm={setForm} required />
+          <TicketNumbersField
+            count={ticketCount}
+            numbers={ticketNumbers}
+            onCountChange={setTicketCount}
+            onNumberChange={setTicketNumberAt}
+          />
           <Field label="Vendedor" name="seller" form={form} setForm={setForm} required />
           <Field label="DNI" name="dni" form={form} setForm={setForm} inputMode="numeric" />
           <Field label="Código UNA" name="una_code" form={form} setForm={setForm} />
@@ -907,6 +994,54 @@ function Field({
         value={form[name]}
         onChange={(event) => setForm((current) => ({ ...current, [name]: event.target.value }))}
       />
+    </div>
+  );
+}
+
+function TicketNumbersField({
+  count,
+  numbers,
+  onCountChange,
+  onNumberChange
+}: {
+  count: number;
+  numbers: string[];
+  onCountChange: (count: number) => void;
+  onNumberChange: (index: number, value: string) => void;
+}) {
+  return (
+    <div className="field span-2">
+      <label htmlFor="ticket-count">Cantidad de tickets</label>
+      <div className="ticket-count-control">
+        <input
+          id="ticket-count"
+          className="range-input"
+          type="range"
+          min={1}
+          max={maxTicketCount}
+          step={1}
+          value={count}
+          onChange={(event) => onCountChange(Number(event.target.value))}
+        />
+        <strong>{count}</strong>
+      </div>
+
+      <div className={count === 1 ? "ticket-number-grid single" : "ticket-number-grid"}>
+        {Array.from({ length: count }, (_, index) => (
+          <div className="field" key={index}>
+            <label htmlFor={`ticket-number-${index}`}>
+              {count === 1 ? "Número de ticket" : `Ticket ${index + 1}`}
+            </label>
+            <input
+              id={`ticket-number-${index}`}
+              className="input"
+              required
+              value={numbers[index] ?? ""}
+              onChange={(event) => onNumberChange(index, event.target.value)}
+            />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

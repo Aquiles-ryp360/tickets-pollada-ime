@@ -63,6 +63,8 @@ La tabla principal es `tickets` y guarda `ticket_number`, `dni`, `una_code`, `ca
 
 No hay estado de anulado. Un ticket con `picked_up = true` y `paid = false` se muestra como caso observado y puede explicarse con `observation`.
 
+Una misma persona puede tener varios tickets. En el formulario de registro puedes mover la cantidad de tickets y escribir el número de cada uno antes de guardar.
+
 ## Flujo de consulta rápida
 
 1. Busca primero tickets existentes en Supabase por ticket, DNI, código UNA, nombre, vendedor u observación.

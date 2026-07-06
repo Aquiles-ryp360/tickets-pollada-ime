@@ -34,6 +34,10 @@ export async function apiCreateTicket(draft: TicketDraft, pin: string) {
   return apiFetch<Ticket>("/api/tickets", { method: "POST", body: JSON.stringify(draft) }, pin);
 }
 
+export async function apiCreateTickets(drafts: TicketDraft[], pin: string) {
+  return apiFetch<Ticket[]>("/api/tickets", { method: "POST", body: JSON.stringify(drafts) }, pin);
+}
+
 export async function apiUpdateTicket(id: string, patch: Partial<TicketDraft>, pin: string) {
   return apiFetch<Ticket>(`/api/tickets/${encodeURIComponent(id)}`, {
     method: "PATCH",
