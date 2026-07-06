@@ -77,6 +77,19 @@ export async function updateTicket(id: string, rawPatch: Partial<TicketDraft>) {
   return data as Ticket;
 }
 
+export async function deleteTicket(id: string) {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("tickets")
+    .delete()
+    .eq("id", id)
+    .select("*")
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data as Ticket;
+}
+
 export async function lookupPeople(query: string) {
   const tickets = await listTickets({ query, filter: "all" });
   return buildPersonSuggestions(tickets, query, 8);

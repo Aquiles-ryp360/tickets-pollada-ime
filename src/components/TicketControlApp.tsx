@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  ArrowDownWideNarrow,
   CheckCircle2,
   CircleDollarSign,
   ClipboardList,
@@ -15,10 +16,12 @@ import {
   Save,
   Search,
   Ticket as TicketIcon,
+  Trash2,
   UserRound
 } from "lucide-react";
 import {
   apiCreateTickets,
+  apiDeleteTicket,
   apiFetch,
   apiGetTickets,
   apiUpdateTicket,
@@ -27,6 +30,7 @@ import {
 } from "@/lib/api-client";
 import {
   createLocalTickets,
+  deleteLocalTicket,
   loadLocalTickets,
   updateLocalTicket
 } from "@/lib/local-store";
@@ -49,6 +53,7 @@ import type { QuickSearchResult } from "@/lib/quick-search";
 type View = "search" | "register" | "list";
 type StorageMode = "api" | "local";
 type Notice = { type: "success" | "error" | "info"; text: string } | null;
+type TicketSort = "created_desc" | "updated_desc" | "ticket_asc";
 
 type IdentityPayload = {
   ok: boolean;
@@ -113,6 +118,7 @@ export function TicketControlApp() {
   });
   const [listQuery, setListQuery] = useState("");
   const [listFilter, setListFilter] = useState<TicketFilter>("all");
+  const [listSort, setListSort] = useState<TicketSort>("created_desc");
   const [personQuery, setPersonQuery] = useState("");
   const [form, setForm] = useState<TicketDraft>(emptyTicketDraft);
   const [ticketCount, setTicketCount] = useState(1);
@@ -143,8 +149,8 @@ export function TicketControlApp() {
       ? quickSearch.error || quickSearch.result?.message || ""
       : "";
   const listResults = useMemo(
-    () => filterTickets(tickets, listQuery, listFilter),
-    [listFilter, listQuery, tickets]
+    () => sortTicketsForList(filterTickets(tickets, listQuery, listFilter), listSort),
+    [listFilter, listQuery, listSort, tickets]
   );
   const personSuggestions = useMemo(
     () => buildPersonSuggestions(tickets, personQuery, 6),
@@ -384,8 +390,55 @@ export function TicketControlApp() {
     }
   }
 
+  async function removeTicket(ticket: Ticket) {
+    const confirmed = window.confirm(
+      `Eliminar el ticket ${ticket.ticket_number} de ${ticket.full_name}? Esta accion no se puede deshacer.`
+    );
+
+    if (!confirmed) return;
+
+    setBusyId(ticket.id);
+    setNotice(null);
+
+    try {
+      const deleted =
+        mode === "local" ? deleteLocalTicket(ticket.id) : await deleteTicketViaApi(ticket.id);
+
+      setTickets((current) => current.filter((item) => item.id !== deleted.id));
+      setQuickSearch((current) => {
+        if (current.result?.kind !== "tickets") return current;
+        return {
+          ...current,
+          result: {
+            ...current.result,
+            tickets: current.result.tickets.filter((item) => item.id !== deleted.id)
+          }
+        };
+      });
+      setObservationDrafts((current) => {
+        const next = { ...current };
+        delete next[deleted.id];
+        return next;
+      });
+      setNotice({ type: "success", text: `Ticket ${deleted.ticket_number} eliminado.` });
+    } catch (error) {
+      setNotice({
+        type: "error",
+        text: error instanceof Error ? error.message : "No se pudo eliminar el ticket."
+      });
+    } finally {
+      setBusyId("");
+    }
+  }
+
   async function updateTicketViaApi(id: string, patch: Partial<TicketDraft>) {
     const result = await apiUpdateTicket(id, patch, pin);
+    if (!result.ok) throw new Error(result.message);
+    return result.data;
+  }
+
+  async function deleteTicketViaApi(id: string) {
+    const result = await apiDeleteTicket(id, pin);
     if (!result.ok) throw new Error(result.message);
     return result.data;
   }
@@ -575,6 +628,7 @@ export function TicketControlApp() {
 
         {view === "search" ? (
           <QuickSearchView
+            busyId={busyId}
             query={quickQuery}
             results={quickResults}
             external={quickExternal}
@@ -582,6 +636,8 @@ export function TicketControlApp() {
             message={quickMessage}
             setQuery={setQuickQuery}
             onAddNew={() => startRegisterFromQuickSearch()}
+            onDelete={removeTicket}
+            onPatch={patchTicket}
           />
         ) : null}
 
@@ -611,9 +667,11 @@ export function TicketControlApp() {
             observationDrafts={observationDrafts}
             query={listQuery}
             results={listResults}
+            sort={listSort}
             setFilter={setListFilter}
             setObservationDrafts={setObservationDrafts}
             setQuery={setListQuery}
+            setSort={setListSort}
             onPatch={patchTicket}
           />
         ) : null}
@@ -632,18 +690,24 @@ function SummaryCard({ label, value }: { label: string; value: number }) {
 }
 
 function QuickSearchView({
+  busyId,
   external,
   loading,
   message,
   onAddNew,
+  onDelete,
+  onPatch,
   query,
   results,
   setQuery
 }: {
+  busyId: string;
   external: IdentityPayload | null;
   loading: boolean;
   message: string;
   onAddNew: () => void;
+  onDelete: (ticket: Ticket) => void;
+  onPatch: (ticket: Ticket, patch: Partial<TicketDraft>) => void;
   query: string;
   results: Ticket[];
   setQuery: (query: string) => void;
@@ -680,7 +744,12 @@ function QuickSearchView({
 
         <div className="results-grid" style={{ marginTop: 14 }}>
           {groupedResults.length ? (
-            <QuickPersonSummary groups={groupedResults} />
+            <QuickPersonSummary
+              busyId={busyId}
+              groups={groupedResults}
+              onDelete={onDelete}
+              onPatch={onPatch}
+            />
           ) : external ? (
             <ExternalPersonPanel external={external} onAddNew={onAddNew} />
           ) : query.trim() ? (
@@ -703,19 +772,46 @@ function QuickSearchView({
   );
 }
 
-function QuickPersonSummary({ groups }: { groups: QuickPersonGroup[] }) {
+function QuickPersonSummary({
+  busyId,
+  groups,
+  onDelete,
+  onPatch
+}: {
+  busyId: string;
+  groups: QuickPersonGroup[];
+  onDelete: (ticket: Ticket) => void;
+  onPatch: (ticket: Ticket, patch: Partial<TicketDraft>) => void;
+}) {
   return (
     <div className="quick-person-grid">
       {groups.map((group) => (
-        <QuickPersonCard key={group.key} group={group} />
+        <QuickPersonCard
+          key={group.key}
+          busyId={busyId}
+          group={group}
+          onDelete={onDelete}
+          onPatch={onPatch}
+        />
       ))}
     </div>
   );
 }
 
-function QuickPersonCard({ group }: { group: QuickPersonGroup }) {
+function QuickPersonCard({
+  busyId,
+  group,
+  onDelete,
+  onPatch
+}: {
+  busyId: string;
+  group: QuickPersonGroup;
+  onDelete: (ticket: Ticket) => void;
+  onPatch: (ticket: Ticket, patch: Partial<TicketDraft>) => void;
+}) {
   const visibleTickets = group.ticketNumbers.slice(0, 18);
   const hiddenTickets = group.ticketNumbers.length - visibleTickets.length;
+  const actionTickets = [...group.tickets].sort(sortByTicketNumberAsc);
 
   return (
     <article className={`quick-person-card ${group.observed ? "observed" : ""}`}>
@@ -760,7 +856,80 @@ function QuickPersonCard({ group }: { group: QuickPersonGroup }) {
           {hiddenTickets > 0 ? <span className="ticket-chip more">+{hiddenTickets}</span> : null}
         </div>
       </div>
+
+      <details className="quick-ticket-actions" open={group.total === 1}>
+        <summary>
+          <span>Gestionar tickets</span>
+          <strong>{group.total}</strong>
+        </summary>
+        <div className="quick-ticket-action-list">
+          {actionTickets.map((ticket) => (
+            <QuickTicketActionRow
+              key={ticket.id}
+              busy={busyId === ticket.id}
+              ticket={ticket}
+              onDelete={onDelete}
+              onPatch={onPatch}
+            />
+          ))}
+        </div>
+      </details>
     </article>
+  );
+}
+
+function QuickTicketActionRow({
+  busy,
+  ticket,
+  onDelete,
+  onPatch
+}: {
+  busy: boolean;
+  ticket: Ticket;
+  onDelete: (ticket: Ticket) => void;
+  onPatch: (ticket: Ticket, patch: Partial<TicketDraft>) => void;
+}) {
+  return (
+    <div className="quick-ticket-action-row">
+      <div className="quick-ticket-action-info">
+        <strong>Ticket {ticket.ticket_number}</strong>
+        <TicketStatusBadge ticket={ticket} />
+      </div>
+      <div className="quick-ticket-buttons">
+        <button
+          className={`switch-button ${ticket.paid ? "on paid" : ""}`}
+          disabled={busy}
+          onClick={() => onPatch(ticket, { paid: !ticket.paid })}
+          title="Cambiar pago"
+          type="button"
+        >
+          <CircleDollarSign size={16} />
+          {ticket.paid ? "Pagado" : "Cobrar"}
+        </button>
+        <button
+          className={`switch-button ${ticket.picked_up ? "on picked" : ""}`}
+          disabled={busy}
+          onClick={() => onPatch(ticket, { picked_up: !ticket.picked_up })}
+          title="Cambiar entrega"
+          type="button"
+        >
+          <PackageCheck size={16} />
+          {ticket.picked_up ? "Recogido" : "Recoger"}
+        </button>
+        <details className="quick-hidden-actions">
+          <summary>Mas</summary>
+          <button
+            className="danger-button"
+            disabled={busy}
+            onClick={() => onDelete(ticket)}
+            type="button"
+          >
+            <Trash2 size={16} />
+            Eliminar
+          </button>
+        </details>
+      </div>
+    </div>
   );
 }
 
@@ -1057,9 +1226,11 @@ function TicketListView({
   observationDrafts,
   query,
   results,
+  sort,
   setFilter,
   setObservationDrafts,
   setQuery,
+  setSort,
   onPatch
 }: {
   busyId: string;
@@ -1067,9 +1238,11 @@ function TicketListView({
   observationDrafts: Record<string, string>;
   query: string;
   results: Ticket[];
+  sort: TicketSort;
   setFilter: (filter: TicketFilter) => void;
   setObservationDrafts: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   setQuery: (query: string) => void;
+  setSort: (sort: TicketSort) => void;
   onPatch: (ticket: Ticket, patch: Partial<TicketDraft>) => void;
 }) {
   return (
@@ -1094,18 +1267,31 @@ function TicketListView({
           </button>
         </div>
 
-        <div className="filter-row" style={{ marginBottom: 12 }}>
-          <ListFilter size={18} />
-          {ticketFilters.map((item) => (
-            <button
-              key={item.id}
-              className={`filter-button ${filter === item.id ? "active" : ""}`}
-              onClick={() => setFilter(item.id)}
-              type="button"
+        <div className="list-controls">
+          <div className="filter-row">
+            <ListFilter size={18} />
+            {ticketFilters.map((item) => (
+              <button
+                key={item.id}
+                className={`filter-button ${filter === item.id ? "active" : ""}`}
+                onClick={() => setFilter(item.id)}
+                type="button"
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+          <label className="sort-control">
+            <ArrowDownWideNarrow size={17} />
+            <select
+              value={sort}
+              onChange={(event) => setSort(event.target.value as TicketSort)}
             >
-              {item.label}
-            </button>
-          ))}
+              <option value="created_desc">Registro mas reciente</option>
+              <option value="updated_desc">Ultima actualizacion</option>
+              <option value="ticket_asc">Ticket menor primero</option>
+            </select>
+          </label>
         </div>
 
         <div className="table-wrap">
@@ -1394,12 +1580,23 @@ function getPersonGroupKey(ticket: Ticket) {
   return `name:${normalizeSearch(ticket.full_name)}`;
 }
 
+function sortTicketsForList(tickets: Ticket[], sort: TicketSort) {
+  const sorted = [...tickets];
+  if (sort === "updated_desc") return sorted.sort(sortByUpdatedAtDesc);
+  if (sort === "ticket_asc") return sorted.sort(sortByTicketNumberAsc);
+  return sorted.sort(sortByCreatedAtDesc);
+}
+
 function sortByCreatedAtDesc(a: Ticket, b: Ticket) {
   return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
 }
 
 function sortByUpdatedAtDesc(a: Ticket, b: Ticket) {
   return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+}
+
+function sortByTicketNumberAsc(a: Ticket, b: Ticket) {
+  return a.ticket_number.localeCompare(b.ticket_number, "es", { numeric: true, sensitivity: "base" });
 }
 
 function mergeTickets(current: Ticket[], incoming: Ticket[]) {

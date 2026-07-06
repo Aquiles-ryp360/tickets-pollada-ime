@@ -350,6 +350,36 @@ button:disabled {
   gap: 8px;
 }
 
+.list-controls {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.sort-control {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.sort-control select {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 700;
+}
+
 .switch-button {
   min-height: 38px;
   border: 1px solid var(--line);
@@ -686,6 +716,99 @@ tr.observed-row {
   color: var(--muted);
 }
 
+.quick-ticket-actions {
+  border-top: 1px solid var(--line);
+  margin-top: 14px;
+  padding-top: 12px;
+}
+
+.quick-ticket-actions > summary {
+  width: fit-content;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  color: var(--ink);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  font-weight: 750;
+  list-style: none;
+}
+
+.quick-ticket-actions > summary::-webkit-details-marker,
+.quick-hidden-actions > summary::-webkit-details-marker {
+  display: none;
+}
+
+.quick-ticket-actions > summary strong {
+  min-width: 24px;
+  min-height: 24px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: var(--teal-soft);
+  color: #064e47;
+  font-size: 0.78rem;
+}
+
+.quick-ticket-action-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.quick-ticket-action-row {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  padding: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.quick-ticket-action-info,
+.quick-ticket-buttons {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.quick-ticket-action-info strong {
+  font-size: 0.94rem;
+}
+
+.quick-hidden-actions > summary {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  font-weight: 750;
+  list-style: none;
+}
+
+.quick-hidden-actions[open] > summary {
+  border-color: #fecdd3;
+  background: #fff1f2;
+  color: var(--rose);
+}
+
+.quick-hidden-actions .danger-button {
+  margin-top: 6px;
+  width: 100%;
+}
+
 .mini-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -751,6 +874,18 @@ tr.observed-row {
     grid-template-columns: 1fr;
   }
 
+  .list-controls {
+    flex-direction: column;
+  }
+
+  .sort-control {
+    width: 100%;
+  }
+
+  .sort-control select {
+    width: 100%;
+  }
+
   .panel-header {
     align-items: flex-start;
     flex-direction: column;
@@ -763,6 +898,11 @@ tr.observed-row {
   .quick-person-fields,
   .quick-stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .quick-ticket-action-row {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .observation-editor {
@@ -816,6 +956,17 @@ tr.observed-row {
   .quick-person-fields,
   .quick-stat-grid {
     grid-template-columns: 1fr;
+  }
+
+  .quick-ticket-actions > summary,
+  .quick-ticket-buttons,
+  .quick-ticket-buttons .switch-button,
+  .quick-hidden-actions {
+    width: 100%;
+  }
+
+  .quick-hidden-actions > summary {
+    width: 100%;
   }
 
   .mini-grid {

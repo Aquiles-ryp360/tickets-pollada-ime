@@ -102,3 +102,14 @@ export function updateLocalTicket(id: string, patch: Partial<TicketDraft>) {
   saveLocalTickets(nextTickets);
   return updated;
 }
+
+export function deleteLocalTicket(id: string) {
+  const tickets = loadLocalTickets();
+  const ticket = tickets.find((item) => item.id === id);
+  if (!ticket) {
+    throw new Error("No se encontro el ticket.");
+  }
+
+  saveLocalTickets(tickets.filter((item) => item.id !== id));
+  return ticket;
+}

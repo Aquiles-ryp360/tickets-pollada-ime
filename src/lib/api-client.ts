@@ -45,6 +45,10 @@ export async function apiUpdateTicket(id: string, patch: Partial<TicketDraft>, p
   }, pin);
 }
 
+export async function apiDeleteTicket(id: string, pin: string) {
+  return apiFetch<Ticket>(`/api/tickets/${encodeURIComponent(id)}`, { method: "DELETE" }, pin);
+}
+
 export async function apiFetch<T>(path: string, init: RequestInit, pin: string): Promise<ApiResult<T>> {
   const response = await fetch(path, {
     ...init,
