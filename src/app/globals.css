@@ -553,6 +553,72 @@ tr.observed-row {
   gap: 7px;
 }
 
+.download-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.download-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.download-card strong {
+  display: block;
+  font-size: 0.96rem;
+}
+
+.download-card p,
+.download-custom-header p,
+.download-message {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.download-card span {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.download-custom {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-top: 12px;
+  padding: 14px;
+  background: #ffffff;
+}
+
+.download-custom-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.download-custom-header strong {
+  display: block;
+  font-size: 1rem;
+}
+
+.download-custom-grid {
+  display: grid;
+  grid-template-columns: minmax(170px, 220px) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
 .empty {
   padding: 28px 16px;
   text-align: center;
@@ -907,6 +973,17 @@ tr.observed-row {
 
   .observation-editor {
     grid-template-columns: 1fr;
+  }
+
+  .download-grid,
+  .download-custom-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .download-custom-header,
+  .download-card {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .ticket-number-grid {

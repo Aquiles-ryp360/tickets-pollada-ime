@@ -7,6 +7,8 @@ import {
   CheckCircle2,
   CircleDollarSign,
   ClipboardList,
+  Download,
+  FileSpreadsheet,
   ListFilter,
   Loader2,
   LockKeyhole,
@@ -40,6 +42,7 @@ import {
   filterTickets,
   getTicketStatus,
   getTicketStatusLabel,
+  normalizeTicketNumber,
   normalizeSearch,
   summarizeTickets,
   ticketFilters,
@@ -50,10 +53,11 @@ import {
 } from "@/lib/tickets";
 import type { QuickSearchResult } from "@/lib/quick-search";
 
-type View = "search" | "register" | "list";
+type View = "search" | "register" | "list" | "downloads";
 type StorageMode = "api" | "local";
 type Notice = { type: "success" | "error" | "info"; text: string } | null;
 type TicketSort = "created_desc" | "updated_desc" | "ticket_asc";
+type DownloadMode = "ticket" | "person" | "seller" | "filter";
 
 type IdentityPayload = {
   ok: boolean;
@@ -94,7 +98,8 @@ type QuickPersonGroup = {
 const views: Array<{ id: View; label: string; icon: typeof Search }> = [
   { id: "search", label: "Consulta rápida", icon: Search },
   { id: "register", label: "Registrar ticket", icon: Plus },
-  { id: "list", label: "Lista de tickets", icon: ClipboardList }
+  { id: "list", label: "Lista de tickets", icon: ClipboardList },
+  { id: "downloads", label: "Descargas", icon: Download }
 ];
 
 const maxTicketCount = 20;
@@ -673,6 +678,15 @@ export function TicketControlApp() {
             setQuery={setListQuery}
             setSort={setListSort}
             onPatch={patchTicket}
+          />
+        ) : null}
+
+        {view === "downloads" ? (
+          <DownloadsView
+            currentFilter={listFilter}
+            currentQuery={listQuery}
+            listResults={listResults}
+            tickets={tickets}
           />
         ) : null}
       </main>
@@ -1370,6 +1384,228 @@ function TicketListView({
   );
 }
 
+function DownloadsView({
+  currentFilter,
+  currentQuery,
+  listResults,
+  tickets
+}: {
+  currentFilter: TicketFilter;
+  currentQuery: string;
+  listResults: Ticket[];
+  tickets: Ticket[];
+}) {
+  const [downloadMode, setDownloadMode] = useState<DownloadMode>("ticket");
+  const [downloadQuery, setDownloadQuery] = useState("");
+  const [downloadFilter, setDownloadFilter] = useState<TicketFilter>("all");
+  const [message, setMessage] = useState("");
+
+  const customResults = useMemo(() => {
+    if (downloadMode === "filter") {
+      return sortByCreatedAtDescList(filterTickets(tickets, "", downloadFilter));
+    }
+
+    const query = downloadQuery.trim();
+    if (!query) return [];
+
+    if (downloadMode === "ticket") {
+      const ticketNumbers = parseTicketNumberQuery(query);
+      return tickets
+        .filter((ticket) => ticketNumbers.has(normalizeTicketNumber(ticket.ticket_number)))
+        .sort(sortByTicketNumberAsc);
+    }
+
+    if (downloadMode === "seller") {
+      return tickets
+        .filter((ticket) => textMatches(ticket.seller, query))
+        .sort(sortByCreatedAtDesc);
+    }
+
+    return tickets
+      .filter((ticket) =>
+        [ticket.full_name, ticket.dni ?? "", ticket.una_code ?? "", ticket.phone ?? ""].some((field) =>
+          textMatches(field, query)
+        )
+      )
+      .sort(sortByCreatedAtDesc);
+  }, [downloadFilter, downloadMode, downloadQuery, tickets]);
+
+  const quickDownloads = [
+    {
+      id: "all",
+      label: "Descargar todo",
+      description: "Todos los tickets registrados.",
+      rows: tickets,
+      filename: "tickets-todos"
+    },
+    {
+      id: "current",
+      label: "Lista actual",
+      description: currentQuery.trim()
+        ? `Busqueda actual con filtro ${getFilterLabel(currentFilter)}.`
+        : `Filtro actual: ${getFilterLabel(currentFilter)}.`,
+      rows: listResults,
+      filename: "tickets-lista-actual"
+    },
+    {
+      id: "unpaid",
+      label: "Pendientes de pago",
+      description: "Tickets que todavia no figuran como pagados.",
+      rows: filterTickets(tickets, "", "unpaid"),
+      filename: "tickets-pendientes-pago"
+    },
+    {
+      id: "paid",
+      label: "Pagados",
+      description: "Tickets marcados como pagados.",
+      rows: filterTickets(tickets, "", "paid"),
+      filename: "tickets-pagados"
+    },
+    {
+      id: "pickup",
+      label: "Falta recoger",
+      description: "Pagados que aun no fueron recogidos.",
+      rows: tickets.filter((ticket) => getTicketStatus(ticket) === "paid_pending_pickup"),
+      filename: "tickets-falta-recoger"
+    },
+    {
+      id: "observed",
+      label: "Observados",
+      description: "Casos con entrega marcada sin pago.",
+      rows: filterTickets(tickets, "", "observed_case"),
+      filename: "tickets-observados"
+    }
+  ];
+
+  function handleDownload(rows: Ticket[], filename: string, label: string) {
+    if (!rows.length) {
+      setMessage(`No hay tickets para "${label}".`);
+      return;
+    }
+
+    exportTicketsToExcel(rows, filename);
+    setMessage(`${rows.length} ticket(s) exportados en Excel.`);
+  }
+
+  const customLabel = getDownloadModeLabel(downloadMode);
+  const customPlaceholder =
+    downloadMode === "ticket"
+      ? "Ej. 001 o 001, 002, 003"
+      : downloadMode === "seller"
+        ? "Nombre del vendedor"
+        : "DNI, codigo UNA, telefono o nombre";
+
+  return (
+    <section className="panel">
+      <div className="panel-header">
+        <h2>Descargas</h2>
+        <span className="mode-pill">
+          <FileSpreadsheet size={16} />
+          Excel
+        </span>
+      </div>
+      <div className="panel-body">
+        <div className="download-grid">
+          {quickDownloads.map((item) => (
+            <div className="download-card" key={item.id}>
+              <div>
+                <strong>{item.label}</strong>
+                <p>{item.description}</p>
+                <span>{item.rows.length} ticket(s)</span>
+              </div>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => handleDownload(item.rows, item.filename, item.label)}
+              >
+                <Download size={17} />
+                Excel
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div className="download-custom">
+          <div className="download-custom-header">
+            <div>
+              <strong>Descarga personalizada</strong>
+              <p>Elige una opcion y descarga solo los tickets que necesitas.</p>
+            </div>
+            <span className="mode-pill">{customResults.length} resultado(s)</span>
+          </div>
+
+          <div className="download-custom-grid">
+            <label className="field">
+              <span>Opcion</span>
+              <select
+                className="input"
+                value={downloadMode}
+                onChange={(event) => {
+                  setDownloadMode(event.target.value as DownloadMode);
+                  setMessage("");
+                }}
+              >
+                <option value="ticket">Por numero de ticket</option>
+                <option value="person">Por persona</option>
+                <option value="seller">Por vendedor</option>
+                <option value="filter">Por estado</option>
+              </select>
+            </label>
+
+            {downloadMode === "filter" ? (
+              <label className="field">
+                <span>Estado</span>
+                <select
+                  className="input"
+                  value={downloadFilter}
+                  onChange={(event) => setDownloadFilter(event.target.value as TicketFilter)}
+                >
+                  {ticketFilters.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <label className="field">
+                <span>{customLabel}</span>
+                <input
+                  className="input"
+                  value={downloadQuery}
+                  onChange={(event) => {
+                    setDownloadQuery(event.target.value);
+                    setMessage("");
+                  }}
+                  placeholder={customPlaceholder}
+                />
+              </label>
+            )}
+
+            <button
+              className="primary-button"
+              type="button"
+              disabled={downloadMode !== "filter" && !downloadQuery.trim()}
+              onClick={() =>
+                handleDownload(
+                  customResults,
+                  `tickets-${getDownloadFilenamePart(downloadMode, downloadMode === "filter" ? getFilterLabel(downloadFilter) : downloadQuery)}`,
+                  `descarga personalizada por ${customLabel.toLowerCase()}`
+                )
+              }
+            >
+              <Download size={18} />
+              Descargar
+            </button>
+          </div>
+
+          {message ? <p className="download-message">{message}</p> : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function TicketCard({
   busy,
   observationDrafts,
@@ -1587,6 +1823,10 @@ function sortTicketsForList(tickets: Ticket[], sort: TicketSort) {
   return sorted.sort(sortByCreatedAtDesc);
 }
 
+function sortByCreatedAtDescList(tickets: Ticket[]) {
+  return [...tickets].sort(sortByCreatedAtDesc);
+}
+
 function sortByCreatedAtDesc(a: Ticket, b: Ticket) {
   return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
 }
@@ -1612,4 +1852,143 @@ function formatDate(value: string) {
     dateStyle: "short",
     timeStyle: "short"
   }).format(new Date(value));
+}
+
+function parseTicketNumberQuery(value: string) {
+  return new Set(
+    value
+      .split(/[\s,;]+/)
+      .map((item) => normalizeTicketNumber(item))
+      .filter(Boolean)
+  );
+}
+
+function textMatches(value: string, query: string) {
+  const normalizedValue = normalizeSearch(value);
+  const normalizedQuery = normalizeSearch(query);
+  return normalizedValue.includes(normalizedQuery);
+}
+
+function getFilterLabel(filter: TicketFilter) {
+  return ticketFilters.find((item) => item.id === filter)?.label ?? "Todos";
+}
+
+function getDownloadModeLabel(mode: DownloadMode) {
+  if (mode === "ticket") return "Numero de ticket";
+  if (mode === "person") return "Persona";
+  if (mode === "seller") return "Vendedor";
+  return "Estado";
+}
+
+function getDownloadFilenamePart(mode: DownloadMode, value: string) {
+  const prefix =
+    mode === "ticket"
+      ? "ticket"
+      : mode === "person"
+        ? "persona"
+        : mode === "seller"
+          ? "vendedor"
+          : "estado";
+  return `${prefix}-${value}`;
+}
+
+function exportTicketsToExcel(tickets: Ticket[], filenameBase: string) {
+  const headers = [
+    "Ticket",
+    "Nombre completo",
+    "DNI",
+    "Codigo UNA",
+    "Carrera",
+    "Telefono",
+    "Vendedor",
+    "Pago",
+    "Recogio",
+    "Estado",
+    "Observacion",
+    "Registrado",
+    "Actualizado"
+  ];
+  const rows = tickets.map((ticket) => [
+    ticket.ticket_number,
+    ticket.full_name,
+    ticket.dni ?? "",
+    ticket.una_code ?? "",
+    ticket.career_name ?? "",
+    ticket.phone ?? "",
+    ticket.seller,
+    ticket.paid ? "Si" : "No",
+    ticket.picked_up ? "Si" : "No",
+    getTicketStatusLabel(ticket),
+    ticket.observation ?? "",
+    formatDate(ticket.created_at),
+    formatDate(ticket.updated_at)
+  ]);
+  const html = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    table { border-collapse: collapse; font-family: Arial, sans-serif; }
+    th, td { border: 1px solid #d9d9d9; padding: 7px 9px; }
+    th { background: #f3f4f6; font-weight: 700; }
+    td { mso-number-format: "\\@"; }
+  </style>
+</head>
+<body>
+  <table>
+    <thead>
+      <tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr>
+    </thead>
+    <tbody>
+      ${rows
+        .map((row) => `<tr>${row.map((cell) => `<td>${escapeHtmlForExcel(cell)}</td>`).join("")}</tr>`)
+        .join("")}
+    </tbody>
+  </table>
+</body>
+</html>`;
+
+  const blob = new Blob(["\ufeff", html], {
+    type: "application/vnd.ms-excel;charset=utf-8;"
+  });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${sanitizeFilename(filenameBase)}-${formatDateForFilename(new Date())}.xls`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+function escapeHtmlForExcel(value: string) {
+  const text = value.trim() || "-";
+  const protectedText = /^[=+\-@]/.test(text) ? `'${text}` : text;
+  return escapeHtml(protectedText);
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (character) => {
+    if (character === "&") return "&amp;";
+    if (character === "<") return "&lt;";
+    if (character === ">") return "&gt;";
+    if (character === '"') return "&quot;";
+    return "&#39;";
+  });
+}
+
+function sanitizeFilename(value: string) {
+  return (
+    value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "tickets"
+  );
+}
+
+function formatDateForFilename(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}`;
 }
