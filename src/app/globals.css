@@ -647,6 +647,55 @@ tr.observed-row {
   font-size: 0.9rem;
 }
 
+.name-suggestion-panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  margin-top: 10px;
+  padding: 10px;
+}
+
+.name-suggestion-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 0.84rem;
+  margin-bottom: 8px;
+}
+
+.name-suggestion-title strong {
+  color: var(--ink);
+}
+
+.name-suggestion-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.name-suggestion-button {
+  min-height: 58px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--ink);
+  text-align: left;
+  padding: 9px 10px;
+  display: grid;
+  gap: 4px;
+}
+
+.name-suggestion-button strong {
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.name-suggestion-button span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 .external-panel {
   border-color: #a9c7fa;
   background: #f7fbff;
@@ -976,6 +1025,7 @@ tr.observed-row {
   }
 
   .download-grid,
+  .name-suggestion-list,
   .download-custom-grid {
     grid-template-columns: 1fr;
   }

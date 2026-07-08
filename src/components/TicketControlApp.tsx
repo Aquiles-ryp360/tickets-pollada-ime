@@ -145,6 +145,10 @@ export function TicketControlApp() {
     if (!quickQuery.trim()) return rawQuickResults;
     return expandTicketsByPerson(rawQuickResults, tickets);
   }, [quickQuery, rawQuickResults, tickets]);
+  const quickNameSuggestions = useMemo(
+    () => buildNameSuggestions(tickets, quickQuery, 6),
+    [quickQuery, tickets]
+  );
   const quickExternal =
     mode === "api" && quickSearch.result?.kind === "external"
       ? quickSearch.result.external
@@ -639,6 +643,7 @@ export function TicketControlApp() {
             external={quickExternal}
             loading={quickSearch.loading}
             message={quickMessage}
+            nameSuggestions={quickNameSuggestions}
             setQuery={setQuickQuery}
             onAddNew={() => startRegisterFromQuickSearch()}
             onDelete={removeTicket}
@@ -708,6 +713,7 @@ function QuickSearchView({
   external,
   loading,
   message,
+  nameSuggestions,
   onAddNew,
   onDelete,
   onPatch,
@@ -719,6 +725,7 @@ function QuickSearchView({
   external: IdentityPayload | null;
   loading: boolean;
   message: string;
+  nameSuggestions: PersonSuggestion[];
   onAddNew: () => void;
   onDelete: (ticket: Ticket) => void;
   onPatch: (ticket: Ticket, patch: Partial<TicketDraft>) => void;
@@ -727,6 +734,7 @@ function QuickSearchView({
   setQuery: (query: string) => void;
 }) {
   const groupedResults = useMemo(() => groupTicketsByPerson(results), [results]);
+  const showNameSuggestions = query.trim().length >= 2 && nameSuggestions.length > 0;
 
   return (
     <section className="panel">
@@ -753,6 +761,31 @@ function QuickSearchView({
             Limpiar
           </button>
         </div>
+
+        {showNameSuggestions ? (
+          <div className="name-suggestion-panel" aria-label="Personas ingresadas">
+            <div className="name-suggestion-title">
+              <UserRound size={16} />
+              <strong>Personas ingresadas</strong>
+            </div>
+            <div className="name-suggestion-list">
+              {nameSuggestions.map((suggestion) => (
+                <button
+                  key={suggestion.key}
+                  className="name-suggestion-button"
+                  type="button"
+                  onClick={() => setQuery(suggestion.full_name)}
+                >
+                  <strong>{suggestion.full_name}</strong>
+                  <span>
+                    DNI {suggestion.dni || "-"} · UNA {suggestion.una_code || "-"} ·{" "}
+                    {suggestion.matches} ticket(s)
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {message ? <p className="search-message">{message}</p> : null}
 
@@ -1808,6 +1841,54 @@ function groupTicketsByPerson(tickets: Ticket[]): QuickPersonGroup[] {
       tickets: groupTickets
     }))
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+}
+
+function buildNameSuggestions(tickets: Ticket[], query: string, limit = 6): PersonSuggestion[] {
+  const normalizedQuery = normalizeSearch(query);
+  if (normalizedQuery.length < 2) return [];
+
+  const people = new Map<string, PersonSuggestion>();
+
+  for (const ticket of tickets) {
+    if (!normalizeSearch(ticket.full_name).includes(normalizedQuery)) continue;
+
+    const key = getPersonGroupKey(ticket);
+    const current = people.get(key);
+
+    if (current) {
+      current.matches += 1;
+      if (new Date(ticket.updated_at).getTime() > new Date(current.updated_at).getTime()) {
+        current.full_name = ticket.full_name;
+        current.dni = ticket.dni ?? "";
+        current.una_code = ticket.una_code ?? "";
+        current.career_code = ticket.career_code ?? "";
+        current.career_name = ticket.career_name ?? "";
+        current.phone = ticket.phone ?? "";
+        current.last_ticket_number = ticket.ticket_number;
+        current.last_seller = ticket.seller;
+        current.updated_at = ticket.updated_at;
+      }
+      continue;
+    }
+
+    people.set(key, {
+      key,
+      full_name: ticket.full_name,
+      dni: ticket.dni ?? "",
+      una_code: ticket.una_code ?? "",
+      career_code: ticket.career_code ?? "",
+      career_name: ticket.career_name ?? "",
+      phone: ticket.phone ?? "",
+      last_ticket_number: ticket.ticket_number,
+      last_seller: ticket.seller,
+      updated_at: ticket.updated_at,
+      matches: 1
+    });
+  }
+
+  return [...people.values()]
+    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+    .slice(0, limit);
 }
 
 function getPersonGroupKey(ticket: Ticket) {
